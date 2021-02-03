@@ -1,26 +1,29 @@
-FROM quay.io/tianyikillua/base:latest
+#FROM quay.io/tianyikillua/base:latest
+FROM ubuntu-dev-base
 LABEL maintainer "Tianyi Li <tianyikillua@gmail.com>"
 
 # Variables
 ENV HDF5_VER=1.10.3
-ENV MED_VER=4.0.0
+ENV MED_VER=4.1.0
 ENV METIS_VER=5.1.0
 ENV PARMETIS_VER=4.0.3
 ENV SCOTCH_VER=6.0.4
-ENV MUMPS_VER=5.1.2
+ENV MUMPS_VER=5.2.1 
 ENV MFRONT_VER=3.2.1
 ENV PETSC_VER=3.9.4
 ENV SCALAPACK_VER=2.0.2
-ENV ASTER_VER=14.4
+ENV ASTER_VER=15.2
+ENV HOMARD_VERSION=11.12
+#ENV GMSH_VERSION=3.0.6
 
 ENV SCOTCH_SRC="scotch-${SCOTCH_VER}-aster7.tar.gz"
-ENV MUMPS_SRC="mumps-${MUMPS_VER}-aster6.tar.gz"
+ENV MUMPS_SRC="mumps-${MUMPS_VER}-aster2.tar.gz"
 ENV ASTER_SRC="aster-${ASTER_VER}.0.tgz"
 ENV SCALAPACK_SRC="http://www.netlib.org/scalapack/scalapack-${SCALAPACK_VER}.tgz"
 ENV PARMETIS_SRC="http://glaros.dtc.umn.edu/gkhome/fetch/sw/parmetis/parmetis-${PARMETIS_VER}.tar.gz"
 ENV PETSC_SRC="http://ftp.mcs.anl.gov/pub/petsc/release-snapshots/petsc-${PETSC_VER}.tar.gz"
 
-ENV ASTER_FULL_SRC="https://code-aster.org/FICHIERS/aster-full-src-14.4.0-1.noarch.tar.gz"
+ENV ASTER_FULL_SRC="https://code-aster.org/FICHIERS/aster-full-src-15.2.0-1.noarch.tar.gz"
 ENV ASTER_ROOT=/home/aster/aster
 ENV PUBLIC=$ASTER_ROOT/public
 
@@ -38,17 +41,34 @@ RUN apt-get update && \
     libmpich-dev \
     libopenblas-dev \
     libsuperlu-dev \
-    libboost-python-dev && \
+    git \
+    libboost-python-dev \
+    cython3 \
+    silversearcher-ag \
+    libboost-numpy-dev && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 USER aster
 WORKDIR /tmp
 
+# download med
+RUN wget --quiet https://files.salome-platform.org/Salome/other/med-${MED_VER}.tar.gz -O med.tar.gz
+
+## get mumps
+#RUN git clone --depth 1 --branch v5.3.4-p1 https://bitbucket.org/petsc/pkg-mumps.git MUMPS && \
+    #mv MUMPS mumps-${MUMPS_VER} && \
+    #tar -czf ${MUMPS_SRC} mumps-${MUMPS_VER}
+
 # Download and install the latest stable version
-RUN wget --no-check-certificate --quiet ${ASTER_FULL_SRC} -O aster_full.tar.gz && \
-    mkdir aster_full && tar xf aster_full.tar.gz -C aster_full --strip-components 1 && \
+RUN wget --quiet ${ASTER_FULL_SRC} -O aster_full.tar.gz
+
+RUN mkdir aster_full && tar xf aster_full.tar.gz -C aster_full --strip-components 1 && \
     cd aster_full && \
+    sed -i "s/med': '4.0.0'/med': '${MED_VER}'/g" __pkginfo__.py && \
+    #sed -i "s/mumps': .*/mumps': '${MUMPS_VER}',/g" __pkginfo__.py && \
+    #cp ../${MUMPS_SRC} SRC/${MUMPS_SRC} && \
+    cp ../med.tar.gz SRC/med-${MED_VER}.tar.gz && \
     python3 setup.py install --prefix ${ASTER_ROOT} --noprompt && \
     mv SRC/${SCOTCH_SRC} SRC/${MUMPS_SRC} SRC/${ASTER_SRC} /tmp && \
     rm -rf /tmp/aster_full.tar.gz /tmp/aster_full && \
@@ -65,8 +85,8 @@ RUN mkdir ptscotch && tar xf ${SCOTCH_SRC} -C ptscotch --strip-components 1 && \
 
 # Build parmetis
 # Patch from https://bitbucket.org/code_aster/parmetis/src/parmetis_aster/
-COPY --chown=aster:aster code_aster/data/parmetis.patch /tmp/parmetis.patch
-RUN wget --no-check-certificate --quiet ${PARMETIS_SRC} -O parmetis.tar.gz && \
+COPY --chown=aster:aster ./data/parmetis.patch /tmp/parmetis.patch
+RUN wget --quiet ${PARMETIS_SRC} -O parmetis.tar.gz && \
     mkdir parmetis && tar xf parmetis.tar.gz -C parmetis --strip-components 1 && \
     patch -s -p0 < parmetis.patch && \
     cd parmetis && \
@@ -76,7 +96,7 @@ RUN wget --no-check-certificate --quiet ${PARMETIS_SRC} -O parmetis.tar.gz && \
     rm -rf /tmp/parmetis.tar.gz /tmp/parmetis.patch /tmp/parmetis
 
 # Build scalapack
-RUN wget --no-check-certificate --quiet ${SCALAPACK_SRC} -O scalapack.tar.gz && \
+RUN wget --quiet ${SCALAPACK_SRC} -O scalapack.tar.gz && \
     mkdir scalapack && tar xf scalapack.tar.gz -C scalapack --strip-components 1 && \
     cd scalapack && \
     mkdir build && cd build && \
@@ -104,8 +124,8 @@ RUN mkdir mumps && tar xf ${MUMPS_SRC} -C mumps --strip-components 1 && \
 
 # Build parallel PETSc
 # Patch from https://hitoricae.com/2019/11/10/code_aster-14-4-with-petsc/
-COPY --chown=aster:aster code_aster/data/petsc.patch /tmp/petsc.patch
-RUN wget --no-check-certificate --quiet ${PETSC_SRC} -O petsc.tar.gz && \
+COPY --chown=aster:aster ./data/petsc.patch /tmp/petsc.patch
+RUN wget --quiet http://ftp.mcs.anl.gov/pub/petsc/release-snapshots/petsc-3.13.6.tar.gz -O petsc.tar.gz && \
     mkdir petsc && tar xf petsc.tar.gz -C petsc --strip-components 1 && \
     patch -s -p0 < petsc.patch && \
     cd petsc && \
@@ -117,54 +137,70 @@ RUN wget --no-check-certificate --quiet ${PETSC_SRC} -O petsc.tar.gz && \
                 --with-scalapack-dir=${PUBLIC}/scalapack-${SCALAPACK_VER} \
                 --with-mumps-dir=${PUBLIC}/mumps-${MUMPS_VER}_mpi \
                 --with-metis-dir=${PUBLIC}/metis-${METIS_VER} \
-                --with-parmetis-dir=${PUBLIC}/parmetis-${PARMETIS_VER} \
+                #--with-parmetis-dir=${PUBLIC}/parmetis-${PARMETIS_VER} \
                 --with-ptscotch-dir=${PUBLIC}/ptscotch-${SCOTCH_VER} \
                 --download-hypre \
                 --download-ml \
                 --LIBS="-lgomp" \
-                --prefix=${PUBLIC}/petsc-${PETSC_VER} && \
+                --prefix=${PUBLIC}/petsc-${PETSC_VER} || true 
+                
+RUN cd petsc && \
     make all && \
     make install && \
+    make check && \
     rm -rf /tmp/petsc.tar.gz /tmp/petsc
 
+## install pets4py
+#RUN git clone https://gitlab.com/petsc/petsc4py && \
+    #cd petsc4py && \
+    #python3 setup.py build --petsc-dir=/home/aster/aster/public/petsc-3.9.4 && \
+
 # Build parallel aster
-COPY --chown=aster:aster code_aster/data/cfg.py /tmp/cfg.py
-COPY --chown=aster:aster code_aster/data/aster.patch /tmp/aster.patch
-RUN . ${ASTER_ROOT}/${ASTER_VER}/share/aster/profile_mfront.sh && \
-    . ${ASTER_ROOT}/etc/codeaster/profile.sh && \
+COPY --chown=aster:aster ./data/cfg.py /tmp/cfg.py
+COPY --chown=aster:aster ./data/aster.patch /tmp/aster.patch
+COPY --chown=aster:aster ./data/aster_petsc.patch /tmp/aster_petsc.patch
+RUN . ${ASTER_ROOT}/etc/codeaster/profile.sh && \
     mkdir aster && tar xf ${ASTER_SRC} -C aster --strip-components 1 && \
     patch aster/waftools/mathematics.py < aster.patch && \
+    patch aster/bibfor/petsc/aster_petsc_module.F90 < aster_petsc.patch && \
     cd aster && \
-    export INCLUDES="/usr/include/superlu \
-                     ${PUBLIC}/hdf5-${HDF5_VER}/include \
-                     ${PUBLIC}/med-${MED_VER}/include \
-                     ${PUBLIC}/metis-${METIS_VER}/include \
-                     ${PUBLIC}/parmetis-${PARMETIS_VER}/include \
-                     ${PUBLIC}/ptscotch-${SCOTCH_VER}/include \
-                     ${PUBLIC}/mumps-${MUMPS_VER}_mpi/include \
-                     ${PUBLIC}/petsc-${PETSC_VER}/include \
-                     ${PUBLIC}/tfel-${MFRONT_VER}/include" && \
-    export LIBPATH="${PUBLIC}/hdf5-${HDF5_VER}/lib \
-                    ${PUBLIC}/med-${MED_VER}/lib \
-                    ${PUBLIC}/metis-${METIS_VER}/lib \
-                    ${PUBLIC}/parmetis-${PARMETIS_VER}/lib \
-                    ${PUBLIC}/ptscotch-${SCOTCH_VER}/lib \
-                    ${PUBLIC}/scalapack-${SCALAPACK_VER}/lib \
-                    ${PUBLIC}/mumps-${MUMPS_VER}_mpi/lib \
-                    ${PUBLIC}/petsc-${PETSC_VER}/lib \
-                    ${PUBLIC}/tfel-${MFRONT_VER}/lib" && \
+    export PYTHONPATH="${ASTER_ROOT}/lib/python3.6/site-packages" && \
+    export INCLUDES="/usr/include/superlu" && \
+    export INCLUDES_HDF5="${PUBLIC}/hdf5-${HDF5_VER}/include" && \
+    export INCLUDES_MED="${PUBLIC}/med-${MED_VER}/include" && \
+    export INCLUDES_METIS="${PUBLIC}/metis-${METIS_VER}/include" && \
+    export INCLUDES_PARMETIS="${PUBLIC}/parmetis-${PARMETIS_VER}/include" && \
+    export INCLUDES_SCOTCH="${PUBLIC}/ptscotch-${SCOTCH_VER}/include" && \
+    export INCLUDES_MUMPS="${PUBLIC}/mumps-${MUMPS_VER}_mpi/include" && \
+    export INCLUDES_PETSC="${PUBLIC}/petsc-${PETSC_VER}/include" && \
+    export INCLUDES_MFRONT="${PUBLIC}/tfel-${MFRONT_VER}/include" && \
+    export LIBPATH_BOOST="/usr/lib/x86_64-linux-gnu" && \
+    export LIBPATH_HDF5="${PUBLIC}/hdf5-${HDF5_VER}/lib" && \
+    export LIBPATH_MED="${PUBLIC}/med-${MED_VER}/lib" && \
+    export LIBPATH_METIS="${PUBLIC}/metis-${METIS_VER}/lib" && \
+    export LIBPATH_PARMETIS="${PUBLIC}/parmetis-${PARMETIS_VER}/lib" && \
+    export LIBPATH_SCOTCH="${PUBLIC}/ptscotch-${SCOTCH_VER}/lib" && \
+    export LIBPATH_SCALAPACK="${PUBLIC}/scalapack-${SCALAPACK_VER}/lib" && \
+    export LIBPATH_MUMPS="${PUBLIC}/mumps-${MUMPS_VER}_mpi/lib" && \
+    export LIBPATH_PETSC="${PUBLIC}/petsc-${PETSC_VER}/lib" && \
+    export LIBPATH_MFRONT="${PUBLIC}/tfel-${MFRONT_VER}/lib" && \
     export METISDIR=${PUBLIC}/metis-${METIS_VER} && \
     export TFELHOME=${PUBLIC}/tfel-${MFRONT_VER} && \
-    export GMSH_BIN_DIR=${PUBLIC}/gmsh-3.0.6-Linux64/bin && \
-    export HOMARD_ASTER_ROOT_DIR=${PUBLIC}/homard-11.12 && \
-    ./waf configure --use-config-dir=/tmp --use-config=cfg --prefix=${ASTER_ROOT}/${ASTER_VER}_mpi --install-tests --enable-mpi && \
-    ./waf build && \
+    #export GMSH_BIN_DIR=${PUBLIC}/gmsh-${GMSH_VERSION}-Linux64/bin && \
+    export HOMARD_ASTER_ROOT_DIR=${PUBLIC}/homard-${HOMARD_VERSION} && \
+    export LD_LIBRARY_PATH="${LIBPATH_BOOST}:${LIBPATH_HDF5}:${LIBPATH_MED}:${LIBPATH_METIS}:${LIBPATH_PARMETIS}:${LIBPATH_SCOTCH}:${LIBPATH_SCALAPACK}:${LIBPATH_MUMPS}:${LIBPATH_PETSC}:${LIBPATH_MFRONT}:${LD_LIBRARY_PATH}" && \
+    ./waf configure --use-config-dir=/tmp --use-config=cfg --prefix=${ASTER_ROOT}/${ASTER_VER}_mpi --install-tests --enable-mpi 
+    
+ENV LD_LIBRARY_PATH="${LIBPATH_BOOST}:${LIBPATH_HDF5}:${LIBPATH_MED}:${LIBPATH_METIS}:${LIBPATH_PARMETIS}:${LIBPATH_SCOTCH}:${LIBPATH_SCALAPACK}:${LIBPATH_MUMPS}:${LIBPATH_PETSC}:${LIBPATH_MFRONT}:${LD_LIBRARY_PATH}"
+
+RUN cd aster && \
+     ./waf build && \
     ./waf install && \
     rm -rf /tmp/*
 
 # Add a welcome message and a script for testcases
 WORKDIR /home/aster
-COPY --chown=aster:aster code_aster/WELCOME /home/aster/WELCOME
+COPY --chown=aster:aster ./WELCOME /home/aster/WELCOME
 COPY --chown=aster:aster run_tests.sh /home/aster/run_tests.sh
 
 RUN echo "vers : stable_mpi:${ASTER_ROOT}/${ASTER_VER}_mpi/share/aster" >> ${ASTER_ROOT}/etc/codeaster/aster && \

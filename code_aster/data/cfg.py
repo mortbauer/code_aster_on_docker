@@ -8,7 +8,7 @@ def configure(self):
     opts.maths_libs = "openblas superlu"
     opts.enable_homard = True
     opts.with_prog_metis = True
-    opts.with_prog_gmsh = True
+    opts.with_prog_gmsh = False
     opts.with_prog_homard = True
     opts.with_prog_xmgrace = True
 
